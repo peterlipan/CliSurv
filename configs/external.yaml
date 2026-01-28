@@ -1,0 +1,36 @@
+# environment
+visible_gpus: '1'
+seed: 42
+
+# dataset
+dataset: 'external'
+task: 'survival'
+checkpoints: './checkpoints'
+results: './results'
+
+kfold: -1 # use the external validation set
+stratify: True
+step: 365.25 # step for time bin discretization in days
+normalize: False
+pad_left: 1 # number of left padding intervals
+pad_right: 1 # number of right padding intervals
+train_ratio: 1.0
+
+# model
+method: 'decouple' # 'ordsurv', 'deephit', 'deepsurv', 'nll', 'angsurv'
+backbone: 'MLP'
+n_layers: 1
+d_hid: 256
+dropout: 0.
+activation: 'relu'
+
+
+# training
+workers: 0
+optimizer: 'Adam'
+epochs: 100
+batch_size: 256
+lr: 2.0e-4
+lr_policy: 'cosine'
+weight_decay: 0.01
+verbose: False

@@ -1,0 +1,38 @@
+# environment
+visible_gpus: '1'
+seed: 42
+
+# dataset
+dataset: 'metabric'
+task: 'survival'
+feature_file: './datasets/METABRIC/cleaned_features_final.csv'
+label_file: './datasets/METABRIC/label.csv'
+checkpoints: './checkpoints'
+results: './results'
+
+kfold: 5
+stratify: True
+step: 30. # step for time bin discretization in days
+normalize: False
+pad_left: 1 # number of left padding intervals
+pad_right: 1 # number of right padding intervals
+train_ratio: 1.0
+
+# model
+method: 'decouple' # 'ordsurv', 'deephit', 'deepsurv', 'nll'
+backbone: 'MLP'
+n_layers: 3
+d_hid: 1024
+dropout: 0.
+activation: 'leaky_relu'
+
+
+# training
+workers: 0
+optimizer: 'Adam'
+epochs: 100
+batch_size: 256
+lr: 2.0e-4
+lr_policy: 'cosine'
+weight_decay: 0.01
+verbose: False
