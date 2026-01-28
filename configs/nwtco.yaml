@@ -17,12 +17,12 @@ pad_right: 1 # number of right padding intervals
 train_ratio: 1.0
 
 # model
-method: 'ordsurv' # 'ordsurv', 'deephit', 'deepsurv', 'discrete', 'angularord', 'ordsoftmax'
+method: 'clisurv-ph'
 backbone: 'MLP'
 n_layers: 2
-d_hid: 1024
+d_hid: 512
 dropout: 0.
-activation: 'tanh'
+activation: 'relu'
 
 
 # training

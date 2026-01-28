@@ -48,7 +48,7 @@ if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = args.visible_gpus
 
     if not args.debug:
-        wandb.login(key="cb1e7d54d21d9080b46d2b1ae2a13d895770aa29")
+        wandb.login(key="[YOUR WANDB_API_KEY HERE]")  # Replace with your actual WandB API key
         config = {k: getattr(args, k) for k in yaml_config.keys()}
 
         wandb_logger = wandb.init(

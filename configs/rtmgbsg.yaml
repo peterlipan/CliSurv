@@ -3,7 +3,7 @@ visible_gpus: '1'
 seed: 42
 
 # dataset
-dataset: 'external'
+dataset: 'rtmgbsg'
 task: 'survival'
 checkpoints: './checkpoints'
 results: './results'
@@ -17,12 +17,12 @@ pad_right: 1 # number of right padding intervals
 train_ratio: 1.0
 
 # model
-method: 'decouple' # 'ordsurv', 'deephit', 'deepsurv', 'nll', 'angsurv'
+method: 'clisurv-ph'
 backbone: 'MLP'
-n_layers: 1
-d_hid: 256
+n_layers: 2
+d_hid: 1024
 dropout: 0.
-activation: 'relu'
+activation: 'tanh'
 
 
 # training

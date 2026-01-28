@@ -19,12 +19,12 @@ pad_right: 1 # number of right padding intervals
 train_ratio: 1.0
 
 # model
-method: 'decouple' # 'ordsurv', 'deephit', 'deepsurv', 'nll'
+method: 'clisurv-ph'
 backbone: 'MLP'
-n_layers: 3
-d_hid: 1024
+n_layers: 2
+d_hid: 2048
 dropout: 0.
-activation: 'leaky_relu'
+activation: 'relu'
 
 
 # training

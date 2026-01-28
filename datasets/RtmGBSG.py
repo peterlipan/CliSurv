@@ -39,7 +39,11 @@ class RotterdamGBSGData:
     def _load_rotterdam(self):
         """Load and preprocess Rotterdam dataset"""
         # Load dataset
-        rotterdam = pd.read_stata("http://www.stata-press.com/data/fpsaus/rott2.dta")
+        try:
+            rotterdam = pd.read_stata("http://www.stata-press.com/data/fpsaus/rott2.dta")
+        except Exception as e:
+            rotterdam = pd.read_stata("./datasets/RtmGBSG/rott2.dta")
+            print("Loaded Rotterdam dataset from local file due to error:", e)
         
         # Select columns of interest
         rotterdam_cols = ["age", "meno", "size", "nodes", "er", "hormon", "rf", "rfi"]
@@ -75,7 +79,11 @@ class RotterdamGBSGData:
     def _load_gbsg(self):
         """Load and preprocess GBSG dataset"""
         # Load dataset
-        gbsg = pd.read_stata("http://www.stata-press.com/data/r11/brcancer.dta")
+        try:
+            gbsg = pd.read_stata("http://www.stata-press.com/data/r11/brcancer.dta")
+        except Exception as e:
+            gbsg = pd.read_stata("./datasets/RtmGBSG/brcancer.dta")
+            print("Loaded GBSG dataset from local file due to error:", e)
         
         # Select columns of interest
         gbsg_cols = ["x1", "x2", "x3", "x5", "x7", "hormon", "rectime", "censrec"]

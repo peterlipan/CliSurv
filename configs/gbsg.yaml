@@ -17,7 +17,7 @@ pad_right: 1 # number of right padding intervals
 train_ratio: 1.0
 
 # model
-method: 'ordsurv' # 'ordsurv', 'deephit', 'deepsurv', 'discrete', 'angularord', 'ordsoftmax'
+method: 'clisurv-ph'
 backbone: 'MLP'
 n_layers: 3
 d_hid: 1024

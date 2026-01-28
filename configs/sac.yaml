@@ -19,7 +19,7 @@ n_test: 2000
 train_ratio: 1.0
 
 # model
-method: 'deephit' # 'ordsurv', 'deephit', 'deepsurv', 'nll'
+method: 'clisurv-ph'
 backbone: 'MLP'
 n_layers: 2
 d_hid: 1024
