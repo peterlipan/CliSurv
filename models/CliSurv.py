@@ -115,6 +115,63 @@ class MonotoneISplineLink(nn.Module):
         h_flat = torch.sigmoid(g_flat)
         return h_flat.view(orig_shape)
 
+    @torch.no_grad()
+    def export_link_curves(self, num_points: int = 400):
+        """
+        Export the learned inverse link g^{-1}_theta(z) and PH/PO references.
+
+        Returns
+        -------
+        dict with:
+            z              : [N] latent score grid
+            gen_invlink    : [N] learned inverse link
+            po_invlink     : [N] sigmoid(z)
+            ph_invlink     : [N] 1 - exp(-exp(z))
+            inner          : [N] pre-sigmoid learned transformation
+            spline_term    : [N] spline contribution
+            weights_pos    : [M] nonnegative spline weights
+            alpha, beta, bias : scalars
+        """
+        device = self.z_grid.device
+        dtype = self.z_grid.dtype
+
+        z = torch.linspace(self.z_min, self.z_max, num_points, device=device, dtype=dtype)
+
+        # interpolate basis exactly as in forward()
+        G = self.grid_size
+        u = (z - self.z_min) / (self.z_max - self.z_min + 1e-8) * (G - 1)
+        u = u.clamp(0, G - 1 - 1e-6)
+
+        idx0 = u.floor().long()
+        idx1 = torch.clamp(idx0 + 1, max=G - 1)
+        w1 = (u - idx0.float()).unsqueeze(-1)
+
+        I0 = self.I_grid[idx0]
+        I1 = self.I_grid[idx1]
+        I_z = (1.0 - w1) * I0 + w1 * I1   # [N, M]
+
+        weights_pos = F.softplus(self.raw_weights)   # [M]
+        spline_term = torch.matmul(I_z, weights_pos) # [N]
+
+        inner = self.bias + self.alpha * z + self.beta * spline_term
+        gen_invlink = torch.sigmoid(inner)
+
+        # references
+        po_invlink = torch.sigmoid(z)
+        ph_invlink = 1.0 - torch.exp(-torch.exp(z))
+
+        return {
+            "z": z.cpu().numpy(),
+            "gen_invlink": gen_invlink.cpu().numpy(),
+            "po_invlink": po_invlink.cpu().numpy(),
+            "ph_invlink": ph_invlink.cpu().numpy(),
+            "inner": inner.cpu().numpy(),
+            "spline_term": spline_term.cpu().numpy(),
+            "weights_pos": weights_pos.cpu().numpy(),
+            "alpha": float(self.alpha.detach().cpu()),
+            "beta": float(self.beta.detach().cpu()),
+            "bias": float(self.bias.detach().cpu()),
+        }
 
 
 class CDFLoss(nn.Module):
@@ -200,13 +257,13 @@ class CliSurv(nn.Module):
         self.n_classes = int(args.n_classes)
 
         self.head = nn.Linear(self.d_hid, 1, bias=False)
-        self.criterion = CDFLoss()
+        self.criterion = CDFLoss(rank_weight=args.w_rank)
 
         self.link = link.lower()
         self.eps = float(eps)
 
         if self.link == "gen":
-            self.activation = MonotoneISplineLink()
+            self.activation = MonotoneISplineLink(z_min=-args.z_m, z_max=args.z_m)
 
         # Baseline reparameterization
         self.raw_deltas = nn.Parameter(torch.full((self.n_classes,), -3.0))
@@ -260,6 +317,12 @@ class CliSurv(nn.Module):
             return self.activation(logits)
 
         raise ValueError(f"Unknown link function: {self.link}")
+
+    @torch.no_grad()
+    def export_learned_link(self, num_points: int = 400):
+        if self.link != "gen":
+            raise ValueError("export_learned_link is only available for link='gen'")
+        return self.activation.export_link_curves(num_points=num_points)
 
     # -------------------------------------------------
     # Forward
@@ -328,3 +391,5 @@ class CliSurv(nn.Module):
             "baseline_survival": S0,
             "ground_truth_survival": ground_truth_survival,
         }
+    
+    

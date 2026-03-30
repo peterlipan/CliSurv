@@ -17,12 +17,14 @@ pad_right: 1 # number of right padding intervals
 train_ratio: 1.0
 
 # model
-method: 'clisurv-ph'
+method: 'clisurv-gen'
 backbone: 'MLP'
 n_layers: 3
 d_hid: 512
 dropout: 0.
 activation: 'gelu'
+w_rank: 0.05 # ranking weight of CliSurv
+z_m: 8
 
 # training
 workers: 0

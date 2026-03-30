@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import torch
 import warnings
+import numpy as np
 import pandas as pd
 from sksurv.util import Surv
 from models import CreateModel
@@ -13,6 +14,12 @@ import numpy as np
 from matplotlib.colors import Normalize
 import matplotlib.cm as cm
 from .utils import MetricLogger
+import time
+from thop import profile
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from matplotlib import rcParams
+import seaborn as sns
 
 
 class Trainer:
@@ -99,12 +106,19 @@ class Trainer:
             self.kfold_train()
         else:
             self.official_train_test()
+        self.plot_link_function()
 
     def train(self):
         args = self.args
         self.model.train()
         cur_iters = 0
+        epoch_times = []
+        epoch_mem_usage = []
+        
         for i in range(args.epochs):
+            epoch_start_time = time.time()
+            torch.cuda.reset_peak_memory_stats()
+            
             for data in self.train_loader:
                 data = {k: v.cuda(non_blocking=True) if hasattr(v, 'cuda') else v for k, v in data.items()}
 
@@ -136,6 +150,14 @@ class Trainer:
                                 'Train': {'loss': loss.item(), 'lr': cur_lr},
                                 'Test': metric_dict
                             }})
+            
+            # epoch_time in seconds
+            epoch_time = time.time() - epoch_start_time
+            epoch_times.append(epoch_time)
+            epoch_mem_usage.append(torch.cuda.max_memory_allocated() / 1024**2)  # Convert to MB
+        
+        self.avg_epoch_time = np.mean(epoch_times)
+        self.avg_gpu_memory = np.mean(epoch_mem_usage)
 
     def validate(self):
         args = self.args
@@ -151,7 +173,7 @@ class Trainer:
         surv_prob = torch.Tensor().cuda()
 
         # calculate the baseline_surv for deepsurv
-        if args.method.lower() in ['deepsurv', 'lassocox', 'coxtime']:
+        if args.method.lower() in ['deepsurv', 'lassocox', 'coxtime', 'ald', 'lognorm', 'icald']:
             bin_times = (torch.arange(self.train_dataset.n_classes, dtype=torch.float32) - args.pad_left) * args.step
             bin_times = torch.clamp(bin_times, min=0.0)
             self.model.prepare_for_validation(self.train_loader, bin_times.to(duration.device))
@@ -183,7 +205,7 @@ class Trainer:
             labels = labels.cpu().detach().numpy()
             test_surv = Surv.from_arrays(event=event_indicator, time=duration)
 
-            _, nll_rc = discrete_rc_nll(events=event_indicator, labels=labels, surv_bins=surv_prob)
+            _, nll_rc = discrete_rc_nll(events=event_indicator, labels=labels, surv_bins=surv_prob, pad_left=args.pad_left, pad_right=args.pad_right)
 
             # Earliest event
             min_time = duration[event_indicator].min()
@@ -204,10 +226,177 @@ class Trainer:
             metric_dict = compute_surv_metrics(train_surv, test_surv, risk_prob, surv_prob_eval, time_points)
             metric_dict['NLL'] = nll_rc
             metric_dict['Loss'] = loss / len(self.test_loader)
+            metric_dict['Epoch_Time'] = self.avg_epoch_time
+            metric_dict['GPU_Memory_MB'] = self.avg_gpu_memory
+            
+            # Calculate number of parameters
+            n_params = sum(p.numel() for p in self.model.parameters())
+            metric_dict['Parameters'] = n_params
+            
+            # Calculate FLOPs using a sample batch
+            # Calculate FLOPs using a sample batch
+            try:
+                sample_data = next(iter(self.test_loader))
+                sample_data = {k: v.cuda(non_blocking=True) if hasattr(v, 'cuda') else v for k, v in sample_data.items()}
+
+                macs, _ = profile(self.model, inputs=(sample_data,), verbose=False)
+                metric_dict['FLOPs'] = macs
+            except Exception as e:
+                warnings.warn(f"Could not compute FLOPs: {e}")
         
         self.model.train(training)
 
         return metric_dict
+
+    def plot_link_function(self):
+        """
+        Render the learned inverse-link comparison at ICML publication quality.
+    
+        Reads from self.args and self.model; saves PNG (+ optional PDF) to
+        <args.results>/links/<dataset>_<fold>.{png,pdf}.
+        """
+        rcParams.update({
+            "text.usetex":         False,          # flip to True when LaTeX is present
+            "font.family":         "serif",
+            "font.serif":          ["Times New Roman", "DejaVu Serif", "Palatino"],
+            "mathtext.fontset":    "stix",
+            "axes.labelsize":      11,
+            "axes.titlesize":      10,
+            "xtick.labelsize":     9,
+            "ytick.labelsize":     9,
+            "legend.fontsize":     9,
+            "legend.title_fontsize": 8.5,
+            "legend.framealpha":   0.93,
+            "legend.edgecolor":    "#d0d0d0",
+            "legend.handlelength": 2.6,
+            "lines.linewidth":     1.6,
+            "axes.linewidth":      0.75,
+            "xtick.major.width":   0.75,
+            "ytick.major.width":   0.75,
+            "xtick.minor.width":   0.45,
+            "ytick.minor.width":   0.45,
+            "xtick.major.size":    4.0,
+            "ytick.major.size":    4.0,
+            "xtick.minor.size":    2.2,
+            "ytick.minor.size":    2.2,
+            "xtick.direction":     "in",
+            "ytick.direction":     "in",
+            "xtick.minor.visible": True,
+            "ytick.minor.visible": True,
+            "figure.dpi":          200,
+            "savefig.dpi":         300,
+            "savefig.bbox":        "tight",
+        })
+
+        _PAL = {
+            "gen": "#0072B2",    # blue        – CliSurv-Gen (focal)
+            "po":  "#E69F00",    # amber       – PO reference
+            "ph":  "#D55E00",    # vermillion  – PH reference
+            "ann": "#555555",    # annotation grey
+            "ref": "#bbbbbb",    # asymptote / grid
+        }
+ 
+
+        args    = self.args
+        img_dir = os.path.join(args.results, "links")
+        os.makedirs(img_dir, exist_ok=True)
+        stem    = os.path.join(img_dir, f"{args.dataset}")
+    
+        method = args.method.lower()
+        if not method.startswith("clisurv"):
+            return
+    
+        link = method.split("-")[1] if "-" in method else ""
+        if link != "gen":
+            return
+    
+        # ── Data ─────────────────────────────────────────────────────────────────
+        info = self.model.activation.export_link_curves(num_points=1000)
+        z    = np.asarray(info["z"])
+        gen  = np.asarray(info["gen_invlink"])
+        po   = np.asarray(info["po_invlink"])
+        ph   = np.asarray(info["ph_invlink"])
+    
+        # ── Seaborn theme base (then we override below) ───────────────────────────
+        sns.set_theme(style="ticks", context="paper", font="serif",
+                    rc={"axes.spines.top": False, "axes.spines.right": False})
+    
+        fig, ax = plt.subplots(figsize=(5.2, 3.9))
+    
+        # ── Confidence-band shading for CliSurv-Gen (visual weight anchor) ────────
+        ax.fill_between(z, gen - 0.015, gen + 0.015,
+                        color=_PAL["gen"], alpha=0.10, linewidth=0, zorder=1)
+    
+        # ── Reference curves (drawn beneath focal) ────────────────────────────────
+        ax.plot(z, po, color=_PAL["po"],
+                linewidth=1.5, linestyle=(0, (5, 2.2)),
+                label=r"PO  (logistic)",   zorder=2, alpha=0.90)
+        ax.plot(z, ph, color=_PAL["ph"],
+                linewidth=1.5, linestyle=(0, (2, 1.6)),
+                label=r"PH  (clog-log)",   zorder=2, alpha=0.90)
+    
+        # ── Focal learned curve ───────────────────────────────────────────────────
+        ax.plot(z, gen, color=_PAL["gen"],
+                linewidth=2.5, linestyle="-",
+                label=r"CliSurv-Gen",      zorder=3)
+    
+        # ── Asymptote reference lines ─────────────────────────────────────────────
+        for yv in (0.0, 1.0):
+            ax.axhline(yv, color=_PAL["ref"], linewidth=0.6,
+                    linestyle=":", zorder=0)
+    
+        # ── Axes limits ───────────────────────────────────────────────────────────
+        xpad = (z.max() - z.min()) * 0.015
+        ax.set_xlim(z.min() - xpad, z.max() + xpad)
+        ax.set_ylim(-0.05, 1.05)
+    
+        # ── Labels ────────────────────────────────────────────────────────────────
+        ax.set_xlabel(r"Latent score $z$")
+        ax.set_ylabel(r"Inverse link $g^{-1}(z)$")
+    
+        # ── Tick locators ─────────────────────────────────────────────────────────
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(2))
+        ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))
+        ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.1))
+        ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f"))
+    
+        # ── Horizontal grid only (seaborn ticks style already removed right/top) ──
+        ax.yaxis.grid(True, linestyle="--", linewidth=0.45,
+                    color=_PAL["ref"], alpha=0.55, zorder=0)
+        ax.set_axisbelow(True)
+    
+        # ── Probability annotations (position is data-range-relative) ─────────────
+        xspan = z.max() - z.min()
+        x_lo  = z.min() + xspan * 0.03
+        x_hi  = z.max() - xspan * 0.03
+        _ann  = dict(fontsize=8, color=_PAL["ann"], fontstyle="italic",
+                    va="bottom", linespacing=1.35)
+        ax.text(x_lo, 0.035, "Lower event\nprobability", ha="left",  **_ann)
+        ax.text(x_hi, 0.835, "Higher event\nprobability", ha="right", **_ann)
+    
+        _arw = dict(arrowstyle="-|>", color=_PAL["ann"],
+                    lw=0.75, mutation_scale=7)
+        ax.annotate("", xy=(x_lo + xspan * 0.005, 0.16),
+                    xytext=(x_lo + xspan * 0.005, 0.26), arrowprops=_arw)
+        ax.annotate("", xy=(x_hi - xspan * 0.005, 0.82),
+                    xytext=(x_hi - xspan * 0.005, 0.72), arrowprops=_arw)
+    
+        # ── Legend ────────────────────────────────────────────────────────────────
+        leg = ax.legend(loc="lower right", frameon=True,
+                        borderpad=0.55, labelspacing=0.30,
+                        handletextpad=0.5)
+        leg.get_frame().set_linewidth(0.55)
+    
+        # ── Seaborn despine (ensures clean look after theme override) ─────────────
+        sns.despine(ax=ax, top=True, right=True)
+    
+        # ── Export ────────────────────────────────────────────────────────────────
+        fig.tight_layout(pad=0.35)
+        fig.savefig(stem + ".png", dpi=300)
+        # fig.savefig(stem + ".pdf")          # vector PDF for paper submission
+        plt.show()
+        plt.close(fig)
     
     def save_model(self):
         args = self.args
@@ -221,9 +410,10 @@ class Trainer:
         suffix = "_ours" if 'clisurv' in args.method.lower() else "_baseline"
         df_name = f"{args.kfold}Fold_{args.dataset}{suffix}.xlsx"
         res_path = args.results
+        args.n_bins = self.train_dataset.n_classes
 
-        settings = ['Dataset', 'Method', 'Model', 'KFold', 'Epochs', 'Seed', 'Step (days)', 'Train Ratio', 'Layers', 'Hidden Dim', 'Activation']
-        kwargs = ['dataset','method', 'backbone', 'kfold', 'epochs', 'seed', 'step', 'train_ratio', 'n_layers', 'd_hid', 'activation']
+        settings = ['Dataset', 'Method', 'Model', 'KFold', 'Epochs', 'Seed', 'Step (days)', 'Train Ratio', 'Layers', 'Hidden Dim', 'Activation', 'N_bins', 'Ranking Weight', 'Z_m']
+        kwargs = ['dataset','method', 'backbone', 'kfold', 'epochs', 'seed', 'step', 'train_ratio', 'n_layers', 'd_hid', 'activation', 'n_bins', 'w_rank', 'z_m']
 
         # for simulations
         if hasattr(args, 'n_train'):

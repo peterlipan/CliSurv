@@ -10,19 +10,21 @@ results: './results'
 
 kfold: -1 # use the external validation set
 stratify: True
-step: 365.25 # step for time bin discretization in days
+step: 30. # step for time bin discretization in days
 normalize: False
 pad_left: 1 # number of left padding intervals
 pad_right: 1 # number of right padding intervals
 train_ratio: 1.0
 
 # model
-method: 'clisurv-ph'
+method: 'clisurv-gen'
 backbone: 'MLP'
 n_layers: 2
 d_hid: 1024
 dropout: 0.
 activation: 'tanh'
+w_rank: 0.05 # ranking weight of CliSurv
+z_m: 8
 
 
 # training

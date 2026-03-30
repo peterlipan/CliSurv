@@ -56,5 +56,14 @@ def CreateModel(args):
     elif args.method.lower() == 'cqrnn':
         from .CQRNN import CQRNN
         return CQRNN(args)
+    elif args.method.lower() == 'ald':
+        from .DeepALD import DeepALD
+        return DeepALD(args)
+    elif args.method.lower() == 'lognorm':
+        from .DeepLogNorm import DeepLogNorm
+        return DeepLogNorm(args)
+    elif args.method.lower() == 'icald':
+        from .DeepICALD import DeepICALD
+        return DeepICALD(args)
     else:
         raise ValueError(f"Unknown method: {args.method}.")
