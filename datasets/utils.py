@@ -38,5 +38,9 @@ def CreateDataset(args):
                                       step=args.step, seed=args.seed, pad_left=args.pad_left, pad_right=args.pad_right)
         else:
             raise ValueError(f"Unknown link function: {args.link}")
+    elif args.dataset.lower() == 'lognormal':
+        from .lognormal_simulations import LogNormalDataset
+        return LogNormalDataset(root=args.data_root, n_train=args.n_train, n_test=args.n_test, input_dim=args.n_feat, 
+                                step=args.step, seed=args.seed, pad_left=args.pad_left, pad_right=args.pad_right)
     else:
         raise ValueError(f"Unknown dataset: {args.dataset}")

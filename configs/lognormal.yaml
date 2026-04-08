@@ -3,27 +3,30 @@ visible_gpus: '1'
 seed: 42
 
 # dataset
-dataset: 'rtmgbsg'
-task: 'survival'
+dataset: 'LogNormal'
 checkpoints: './checkpoints'
 results: './results'
+data_root: "./datasets/LogNormal"
 
-kfold: -1 # use the external validation set
+kfold: -1 # use the fixed validation set
 stratify: True
-step: 30. # step for time bin discretization in days
+step: 7.0 # fixed
 normalize: False
 pad_left: 1 # number of left padding intervals
 pad_right: 1 # number of right padding intervals
+n_train: 4000
+n_test: 1000
+n_feat: 8
 train_ratio: 1.0
 
 # model
 method: 'clisurv-ph'
 backbone: 'MLP'
 n_layers: 2
-d_hid: 1024
+d_hid: 512
 dropout: 0.
-activation: 'tanh'
-w_rank: 0.05 # ranking weight of CliSurv
+activation: 'relu'
+w_rank: 0.1 # ranking weight of CliSurv
 z_m: 8
 
 
